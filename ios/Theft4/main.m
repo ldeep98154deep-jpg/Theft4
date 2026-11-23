@@ -2155,10 +2155,11 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
 - (void)applyLimitedMemoryCaps {
     if (!_limitedMemoryProfile || !_bringupOverlay.renderResolution || _executionAttempted) return;
 
-    // Devices with 6 GiB or less stay inside a 900p scene / 1080p presentation
-    // ceiling, with settings that add render targets, samples, or draws removed.
-    if (_bringupOverlay.renderResolution.selectedSegmentIndex > 2)
-        _bringupOverlay.renderResolution.selectedSegmentIndex = 2;
+    // Devices with 6 GiB or less stay inside a 720p scene / 1080p presentation
+    // ceiling. Device captures show 900p scenes already exceed the 30 FPS CPU
+    // budget in draw-heavy views; FSR still supplies the fixed 1080p output.
+    if (_bringupOverlay.renderResolution.selectedSegmentIndex > 1)
+        _bringupOverlay.renderResolution.selectedSegmentIndex = 1;
     _bringupOverlay.fsrUpscaling.on = YES;
     if (_shadowQuality.selectedSegmentIndex > 1) _shadowQuality.selectedSegmentIndex = 1;
     _drawDistance.selectedSegmentIndex = 0;
@@ -2171,8 +2172,8 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     _fsrBoost.on = NO;
     _enhancedOutput.on = YES;
 
-    [_bringupOverlay.renderResolution setEnabled:NO forSegmentAtIndex:3];
-    [_bringupOverlay.renderResolution setEnabled:NO forSegmentAtIndex:4];
+    for (NSInteger index = 2; index < _bringupOverlay.renderResolution.numberOfSegments; ++index)
+        [_bringupOverlay.renderResolution setEnabled:NO forSegmentAtIndex:index];
     for (NSInteger index = 2; index < _shadowQuality.numberOfSegments; ++index)
         [_shadowQuality setEnabled:NO forSegmentAtIndex:index];
     for (NSInteger index = 1; index < _drawDistance.numberOfSegments; ++index)

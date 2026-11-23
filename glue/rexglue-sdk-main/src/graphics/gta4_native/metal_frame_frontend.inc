@@ -378,7 +378,7 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
     }
     const auto bucket=std::pair{descriptor.handle,depth};
     for(uint64_t id:next.surface_buckets[bucket]) {
-      auto& record=next.surfaces.at(id);const auto& owner=record.owner;
+      const auto& record=next.surfaces.Read(id);const auto& owner=record.owner;
       if(SurfaceDescriptorsEqual(record.descriptor,descriptor)&&owner->width==width&&
          owner->height==height&&owner->samples==samples&&record.virtual_lifetime==virtual_lifetime&&record.is_reflection==is_reflection&&
          (!is_reflection||SameNativeReflectionRegistration(record.reflection,reflection))) {
@@ -404,8 +404,8 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
     GuestSurfaceView view;if(!DecodeGuestSurfaceView(descriptor,depth,view))return nullptr;
     const auto it=next.placements.find(GetGuestPlacementKey(view));
     if(it==next.placements.end())return nullptr;
-    const auto surface=next.surfaces.find(it->second.surface);
-    return surface!=next.surfaces.end()&&surface->second.materialized_serial==it->second.serial?
+    const auto* surface=next.surfaces.Find(it->second.surface);
+    return surface&&surface->materialized_serial==it->second.serial?
         &it->second:nullptr;
   };
   const auto resolve_placement_owner=[&](const SurfaceDescriptor& descriptor,bool depth)
@@ -416,9 +416,9 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
     const NativeMetalFrameState::PlacementOwner* latest=nullptr;
     for(const auto& [key,writer]:next.placements) {
       if(!NativeResolveSameRowLayout(key,requested))continue;
-      const auto found=next.surfaces.find(writer.surface);
-      if(found==next.surfaces.end()||found->second.is_reflection||
-         found->second.materialized_serial!=writer.serial)continue;
+      const auto* found=next.surfaces.Find(writer.surface);
+      if(!found||found->is_reflection||
+         found->materialized_serial!=writer.serial)continue;
       if(!latest||writer.serial>latest->serial)latest=&writer;
     }
     // A newer incompatible/shorter/narrower write must not expose an older allocation.
@@ -442,7 +442,7 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
     }
   };
   const auto prepare_surface=[&](const std::shared_ptr<const r::Surface>& surface) {
-    auto& record=next.surfaces.at(surface->key.id);
+    const auto& record=next.surfaces.Read(surface->key.id);
     if(record.is_reflection)return true;
     const bool depth=r::SupportsAspect(surface->format,r::Aspect::Depth);
     GuestSurfaceView view;
@@ -490,7 +490,8 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
       r::Attachment attachment;attachment.view=output_view;attachment.load=r::Load::Clear;attachment.store=r::Store::Store;
       r::Pass pass;pass.colors[0]=attachment;pass.commands.push_back(std::move(draw));r::AppendPass(*plan,std::move(pass));
     }
-    next.contents.insert(output_view);record.materialized_serial=writer.serial;
+    next.contents.insert(output_view);
+    next.surfaces.at(surface->key.id).materialized_serial=writer.serial;
     next.placements[GetGuestPlacementKey(view)]={surface->key.id,writer.serial,view};return true;
   };
   const auto sample_override_for=[&](const NativeCommand& command) {
@@ -550,7 +551,8 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
     claim(surface);r::AppendClearPass(*plan,std::move(pass));return true;
   };
   const auto produced_texture=[&](const std::shared_ptr<const NativeTextureResource>& resource) {
-    auto existing=next.textures.find(resource->generation);
+    const auto& textures=next.textures;
+    auto existing=textures.find(resource->generation);
     if(!resource->gpu_produced)return reject("Metal produced texture has no GPU resource contract");
     VkFormat format=ConvertTextureFormat(resource->info.format);
     // Metal uses float32 depth storage. Packed-depth reconstruction retains the
@@ -570,11 +572,11 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
     const auto* reflection=FindNativeReflectionTexture(reflections,resource->handle,
                                                        resource->info.width+1,resource->info.height+1);
     if(resource->packed_depth_source) {
-      const auto parent=next.textures.find(resource->packed_depth_source->generation);
-      if(parent==next.textures.end())return reject("Metal packed alias requires prepared source metadata");
+      const auto parent=textures.find(resource->packed_depth_source->generation);
+      if(parent==textures.end())return reject("Metal packed alias requires prepared source metadata");
       packed_allocation=parent->second.owner->key.id;
     }
-    if(existing!=next.textures.end()&&existing->second.virtual_lifetime==virtual_lifetime&&
+    if(existing!=textures.end()&&existing->second.virtual_lifetime==virtual_lifetime&&
        existing->second.packed_allocation==packed_allocation&&existing->second.description->is_reflection==bool(reflection)&&
        (!reflection||SameNativeReflectionRegistration(existing->second.description->reflection,*reflection))) {
       // Immutable resource identity plus registration identity avoids rebuilding
@@ -588,20 +590,23 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT};
     const NativeTextureImage* packed_source=nullptr;
     if(resource->packed_depth_source) {
-      const auto parent=next.textures.find(resource->packed_depth_source->generation);
-      if(parent==next.textures.end())return reject("Metal packed alias requires prepared source metadata");
+      const auto parent=textures.find(resource->packed_depth_source->generation);
+      if(parent==textures.end())return reject("Metal packed alias requires prepared source metadata");
       packed_source=parent->second.description.get();
     }
     if(!PrepareNativeTextureDescription(NativeResourceView<NativeTextureResource>(resource),format,packed_source,tcaps,description,error,&reflections,&next.virtuals))return false;
     const auto& metadata=*description.image;
-    if(existing!=next.textures.end()) {
+    if(existing!=textures.end()) {
       const auto& old=*existing->second.description;
       if(old.width==metadata.width&&old.height==metadata.height&&old.mip_levels==metadata.mip_levels&&
          old.view_type==metadata.view_type&&old.format==metadata.format&&old.is_reflection==metadata.is_reflection&&
          (!old.is_reflection||SameNativeReflectionRegistration(old.reflection,metadata.reflection))) {
-        existing->second.virtual_lifetime=virtual_lifetime;existing->second.packed_allocation=packed_allocation;
-        existing->second.description=std::shared_ptr<NativeTextureImage>(std::move(description.image));
-        existing->second.description->source.reset();retain(existing->second.owner);return true;
+        // Only this rare metadata-update branch needs a mutable registry entry;
+        // the common warm hit above stays a read-only lookup.
+        auto& mutable_existing=next.textures.at(resource->generation);
+        mutable_existing.virtual_lifetime=virtual_lifetime;mutable_existing.packed_allocation=packed_allocation;
+        mutable_existing.description=std::shared_ptr<NativeTextureImage>(std::move(description.image));
+        mutable_existing.description->source.reset();retain(mutable_existing.owner);return true;
       }
       // A virtual/reflection registration can change physical storage without
       // changing the guest resource generation. Retire its old content journal.
@@ -650,7 +655,7 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
     if(parent->packed_depth_source||!produced_texture(parent))
       return reject("Metal packed alias source must be original resolved depth/stencil storage");
     if(!produced_texture(resource))return false;
-    auto& input=next.textures.at(parent->generation);auto& destination=next.textures.at(resource->generation);
+    const auto& input=next.textures.Read(parent->generation);auto& destination=next.textures.at(resource->generation);
     const auto& source_storage=*input.owner;const auto& storage=*destination.owner;
     if(source_storage.format!=r::Format::Depth32FloatStencil8||source_storage.kind!=r::ImageKind::Texture2D||
        source_storage.levels!=1||source_storage.samples!=1||storage.levels!=1||storage.kind!=r::ImageKind::Texture2D||
@@ -855,7 +860,7 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
       if(draw.capture) {
         for(uint32_t i=0;i<kRenderTargetCount;++i)if(pass.colors[i]) {
           const auto& attachment=*pass.colors[i];
-          const auto surface=next.surfaces.at(attachment.view.surface.id).owner;
+          const auto surface=next.surfaces.Read(attachment.view.surface.id).owner;
           if(attachment.load==r::Load::Clear)next.contents.insert(attachment.view);
           if(attachment.load==r::Load::Clear||NativeColorWriteMaskForTarget(target.color_write_mask,i))claim(surface);
         }
@@ -869,7 +874,7 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
           next.contents.insert(attachment->view);
         if(pass.depth&&(writes_depth||writes_stencil||pass.depth->load==r::Load::Clear||
                         (pass.stencil&&pass.stencil->load==r::Load::Clear)))
-          claim(next.surfaces.at(pass.depth->view.surface.id).owner);
+          claim(next.surfaces.Read(pass.depth->view.surface.id).owner);
         r::AppendPass(*plan,std::move(pass)).commands.emplace_back(std::move(draw));
       }
       return true;
@@ -880,10 +885,10 @@ bool Gta4NativeGraphicsSystem::PublishNativeMetalFrame(
       DepthSurfaceHandoffCommand handoff;std::memcpy(&handoff,command.bytes.data(),sizeof(handoff));
       const auto resource=NativeResourceView<NativeTextureResource>(command.depth_handoff_source).Share();
       if(!produced_texture(resource))return false;
-      const auto& input=next.textures.at(resource->generation);
+      const auto& input=next.textures.Read(resource->generation);
       if(!input.depth_resolved)return reject("Metal depth handoff source has no successful depth resolve");
       auto destination=surface_for(handoff.destination,true);if(!destination)return false;
-      if(next.surfaces.at(destination->key.id).is_reflection||input.owner->format!=r::Format::Depth32FloatStencil8||destination->format!=input.owner->format||
+      if(next.surfaces.Read(destination->key.id).is_reflection||input.owner->format!=r::Format::Depth32FloatStencil8||destination->format!=input.owner->format||
          input.owner->width!=destination->width||input.owner->height!=destination->height||
          input.description->logical_width!=handoff.destination.width||
          input.description->logical_height!=handoff.destination.height||input.owner->samples!=1||

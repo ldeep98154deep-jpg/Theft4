@@ -45,6 +45,12 @@ class NativeTransactionalMap {
   size_t size()const{return values_.size();}
   bool empty()const{return values_.empty();}
   bool contains(const Key& key)const{return values_.contains(key);}
+  // Read-only pointer lookup. Unlike find()/at(), this never starts a
+  // transactional copy, so hot lowering paths can inspect growing registries
+  // without paying for a node copy on the first mutable-looking access.
+  const Value* Find(const Key& key)const{
+    auto it=values_.find(key);return it==values_.end()?nullptr:&it->second;
+  }
   const_iterator begin()const{return values_.begin();}
   const_iterator end()const{return values_.end();}
   auto find(const Key& key){Touch(key);return values_.find(key);}
