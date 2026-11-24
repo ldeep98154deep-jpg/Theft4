@@ -76,6 +76,27 @@ jobs:
       - name: Prepare pinned dependencies and patches
         run: python3 tools/setup_repo.py
 
+      - name: Install modern DXC for GTA IV shader overrides
+        run: |
+          set -euo pipefail
+          DXC_ZIP="$RUNNER_TEMP/MacOS-DXC.zip"
+          DXC_SHA256="8f07135f0858cd7c5b2e346ee64b6e7a72128fbf38b06685ec9ac1b465d24399"
+          curl -fsSL --retry 3 \
+            "https://raw.githubusercontent.com/MethanePowered/DirectXShaderCompilerBinary/31d48398e0e76c0f18cdcedfe2d5c850d0e08419/binaries/MacOS.zip" \
+            -o "$DXC_ZIP"
+          echo "$DXC_SHA256  $DXC_ZIP" | shasum -a 256 -c -
+          rm -rf "$RUNNER_TEMP/dxc"
+          mkdir -p "$RUNNER_TEMP/dxc"
+          unzip -q "$DXC_ZIP" -d "$RUNNER_TEMP/dxc"
+          chmod +x "$RUNNER_TEMP/dxc/MacOS/bin/"*
+          DXC_BIN_DIR="$GITHUB_WORKSPACE/tools/XenosRecomp/thirdparty/dxc-bin/bin/arm64"
+          DXC_LIB_DIR="$GITHUB_WORKSPACE/tools/XenosRecomp/thirdparty/dxc-bin/lib/arm64"
+          mkdir -p "$DXC_BIN_DIR" "$DXC_LIB_DIR"
+          cp "$RUNNER_TEMP/dxc/MacOS/bin/dxc-3.7" "$DXC_BIN_DIR/dxc-macos"
+          cp "$RUNNER_TEMP/dxc/MacOS/lib/libdxcompiler.dylib" "$DXC_LIB_DIR/"
+          cp "$RUNNER_TEMP/dxc/MacOS/lib/libdxil.dylib" "$DXC_LIB_DIR/"
+          "$DXC_BIN_DIR/dxc-macos" --version
+
       - name: Configure
         run: cmake --preset macos-${{ matrix.config == 'Debug' && 'debug' || 'release' }}
 
