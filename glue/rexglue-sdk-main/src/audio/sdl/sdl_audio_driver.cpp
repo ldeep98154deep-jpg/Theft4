@@ -58,6 +58,10 @@ SDLAudioDriver::~SDLAudioDriver() {
   assert_true(frames_unused_.empty());
 }
 
+// libc++'s chrono duration constructor binds this static constant by
+// reference, so it is odr-used and needs an out-of-line definition.
+const uint32_t SDLAudioDriver::silent_frame_duration_microseconds_;
+
 bool SDLAudioDriver::Initialize() {
   // Prevent SDL from interfering with timer resolution (causes FPS drops)
   SDL_SetHintWithPriority(SDL_HINT_TIMER_RESOLUTION, "0", SDL_HINT_OVERRIDE);
