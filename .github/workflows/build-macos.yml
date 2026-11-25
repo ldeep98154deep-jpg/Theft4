@@ -91,10 +91,14 @@ jobs:
           chmod +x "$RUNNER_TEMP/dxc/MacOS/bin/"*
           DXC_BIN_DIR="$GITHUB_WORKSPACE/tools/XenosRecomp/thirdparty/dxc-bin/bin/arm64"
           DXC_LIB_DIR="$GITHUB_WORKSPACE/tools/XenosRecomp/thirdparty/dxc-bin/lib/arm64"
-          mkdir -p "$DXC_BIN_DIR" "$DXC_LIB_DIR"
+          # dxc-3.7 has RPATH @executable_path/../lib, i.e. bin/lib from bin/arm64.
+          DXC_BIN_LIB_DIR="$GITHUB_WORKSPACE/tools/XenosRecomp/thirdparty/dxc-bin/bin/lib"
+          mkdir -p "$DXC_BIN_DIR" "$DXC_LIB_DIR" "$DXC_BIN_LIB_DIR"
           cp "$RUNNER_TEMP/dxc/MacOS/bin/dxc-3.7" "$DXC_BIN_DIR/dxc-macos"
           cp "$RUNNER_TEMP/dxc/MacOS/lib/libdxcompiler.dylib" "$DXC_LIB_DIR/"
           cp "$RUNNER_TEMP/dxc/MacOS/lib/libdxil.dylib" "$DXC_LIB_DIR/"
+          cp "$RUNNER_TEMP/dxc/MacOS/lib/libdxil.dylib" "$DXC_LIB_DIR/libdxildll.dylib"
+          cp "$DXC_LIB_DIR/"*.dylib "$DXC_BIN_LIB_DIR/"
           "$DXC_BIN_DIR/dxc-macos" --version
 
       - name: Configure
