@@ -162,6 +162,10 @@ const Full& NativeQueueCommand(const NativeCommandPacket<Full>& packet) {
   assert(packet.FullCommand()); return *packet.FullCommand();
 }
 template <typename Command>
+Command& NativeQueueCommand(Command& command) { return command; }
+template <typename Command>
+const Command& NativeQueueCommand(const Command& command) { return command; }
+template <typename Command>
 bool NativeQueueHasResources(const Command&) { return true; }
 template <typename Full>
 bool NativeQueueHasResources(const NativeCommandPacket<Full>& packet) { return packet.FullCommand() != nullptr; }
