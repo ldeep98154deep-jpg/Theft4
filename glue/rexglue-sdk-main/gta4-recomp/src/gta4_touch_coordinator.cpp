@@ -108,10 +108,6 @@ struct RowCapture {
   bool active = false;
 };
 
-  bool active = false;
-  bool has_quad = false;
-};
-
 std::mutex g_geometry_mutex;
 FrontendGeometry g_frontend_geometry;
 RadarGeometry g_radar_geometry;
